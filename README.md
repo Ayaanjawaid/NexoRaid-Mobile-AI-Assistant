@@ -16,10 +16,16 @@ A sophisticated Android chat application powered by OpenRouter AI that offers pe
 8. [Usage Guide](#usage-guide)
 
 ---
+## 📥 Download APK
+
+[Download NexoRaid APK](https://github.com/Ayaanjawaid/NexoRaid-Mobile-AI-Assistant/releases/tag/v1.0)
+
+---
 
 ## 🆕 Recent Updates
 - **RAG (Retrieval‑Augmented Generation)**: Integrated real‑time web search using Google Custom Search API. The app now provides up‑to‑date answers for date, weather, news, and general queries.
 
+---
 
 ## 🎯 Project Overview
 
