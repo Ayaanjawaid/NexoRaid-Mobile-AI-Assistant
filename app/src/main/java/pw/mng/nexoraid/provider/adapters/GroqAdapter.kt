@@ -82,14 +82,23 @@ class GroqAdapter(
                 }
             }
             override fun onClosed(eventSource: EventSource) { close() }
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) { close(t ?: Exception("Stream failed")) }
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
+                val errorDetails = response?.let { "HTTP ${it.code} ${it.message}" } ?: t?.message ?: "Unknown error"
+                close(Exception("Stream failed: $errorDetails", t))
+            }
         }
 
         EventSources.createFactory(okHttpClient).newEventSource(request, eventSourceListener)
         awaitClose { }
     }
 
-    override suspend fun listModels(apiKey: String): List<String> = listOf("llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768")
+    override suspend fun listModels(apiKey: String): List<String> = listOf(
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "llama-3.3-70b-versatile",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+    )
     override suspend fun validateKey(apiKey: String): Boolean = true
 }
 

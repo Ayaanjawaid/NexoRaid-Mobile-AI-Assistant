@@ -89,7 +89,10 @@ class CustomAdapter(
                 }
             }
             override fun onClosed(eventSource: EventSource) { close() }
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) { close(t ?: Exception("Stream failed")) }
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
+                val errorDetails = response?.let { "HTTP ${it.code} ${it.message}: ${it.body?.string()}" } ?: t?.message ?: "Unknown error"
+                close(Exception("Stream failed: $errorDetails", t))
+            }
         }
 
         EventSources.createFactory(okHttpClient).newEventSource(request, eventSourceListener)

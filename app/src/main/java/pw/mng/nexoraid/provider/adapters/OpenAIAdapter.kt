@@ -87,7 +87,8 @@ class OpenAIAdapter(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
-                close(t ?: Exception("Stream failed"))
+                val errorDetails = response?.let { "HTTP ${it.code} ${it.message}: ${it.body?.string()}" } ?: t?.message ?: "Unknown error"
+                close(Exception("Stream failed: $errorDetails", t))
             }
         }
 
