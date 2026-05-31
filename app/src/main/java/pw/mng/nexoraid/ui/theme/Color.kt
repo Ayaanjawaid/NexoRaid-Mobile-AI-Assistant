@@ -2,21 +2,22 @@ package pw.mng.nexoraid.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val TechBlack = Color(0xFF0D1117)
-val TechGray = Color(0xFF161B22)
-val TechBorder = Color(0xFF30363D)
-val TechText = Color(0xFFC9D1D9)
+// Premium Dark Theme - Sleek Charcoal / Zinc Palette
+val TechBlack = Color(0xFF09090B) // Zinc 950 - very deep sleek black
+val TechGray = Color(0xFF18181B)  // Zinc 900
+val TechBorder = Color(0xFF27272A) // Zinc 800
+val TechText = Color(0xFFFAFAFA)   // Zinc 50
+val TechTextMuted = Color(0xFFA1A1AA) // Zinc 400
 
-val AccentCyan = Color(0xFF00F5D4)
-val AccentPurple = Color(0xFF9D00FF)
-val AccentPink = Color(0xFFFF00E5)
-val AccentBlue = Color(0xFF00BBFF)
+val AccentPrimary = Color(0xFFE4E4E7) // Zinc 200 - elegant white-ish primary
+val AccentSecondary = Color(0xFF3F3F46) // Zinc 700
+val AccentTertiary = Color(0xFF52525B) // Zinc 600
 
-val UserBubble = Color(0xFF238636)
-val BotBubble = Color(0xFF161B22)
+val UserBubble = Color(0xFF27272A) // Zinc 800
+val BotBubble = Color(0xFF18181B) // Zinc 900
 
-// Light Mode
-val LightBg = Color(0xFFF6F8FA)
-val LightSurface = Color(0xFFFFFFFF)
-val LightText = Color(0xFF24292F)
-val LightBorder = Color(0xFFD0D7DE)
+// Fallback Light Mode (kept for compatibility, though we force dark mode)
+val LightBg = Color(0xFFFFFFFF)
+val LightSurface = Color(0xFFF4F4F5)
+val LightText = Color(0xFF09090B)
+val LightBorder = Color(0xFFE4E4E7)

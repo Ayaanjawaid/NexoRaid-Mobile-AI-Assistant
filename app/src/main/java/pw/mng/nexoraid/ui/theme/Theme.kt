@@ -12,34 +12,38 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = AccentCyan,
-    secondary = AccentPurple,
-    tertiary = AccentPink,
+    primary = AccentPrimary,
+    secondary = AccentSecondary,
+    tertiary = AccentTertiary,
     background = TechBlack,
     surface = TechGray,
     onPrimary = TechBlack,
     onSecondary = TechText,
-    onTertiary = TechBlack,
+    onTertiary = TechText,
     onBackground = TechText,
-    onSurface = TechText
+    onSurface = TechText,
+    surfaceVariant = TechBorder,
+    onSurfaceVariant = TechTextMuted
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = AccentBlue,
-    secondary = AccentPurple,
-    tertiary = AccentPink,
+    primary = AccentPrimary,
+    secondary = AccentSecondary,
+    tertiary = AccentTertiary,
     background = LightBg,
     surface = LightSurface,
     onPrimary = LightSurface,
     onSecondary = LightText,
     onTertiary = LightSurface,
     onBackground = LightText,
-    onSurface = LightText
+    onSurface = LightText,
+    surfaceVariant = LightBorder,
+    onSurfaceVariant = TechTextMuted
 )
 
 @Composable
 fun NexoRaidTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true, // Forced Dark Mode as per user request
     persona: pw.mng.nexoraid.data.Persona? = null,
     content: @Composable () -> Unit
 ) {
@@ -47,8 +51,8 @@ fun NexoRaidTheme(
     
     val colorScheme = if (persona != null) {
         baseScheme.copy(
-            primary = androidx.compose.ui.graphics.Color(persona.primaryColor),
-            tertiary = androidx.compose.ui.graphics.Color(persona.tertiaryColor)
+            primary = androidx.compose.ui.graphics.Color(persona.primaryColor.toInt()),
+            tertiary = androidx.compose.ui.graphics.Color(persona.tertiaryColor.toInt())
         )
     } else {
         baseScheme

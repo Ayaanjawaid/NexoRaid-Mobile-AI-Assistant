@@ -2,4 +2,10 @@
 <resources>
 
     <style name="Theme.NexoRaid" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.NexoRaid.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/nexoraid_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_playstore</item>
+        <item name="postSplashScreenTheme">@style/Theme.NexoRaid</item>
+    </style>
 </resources>

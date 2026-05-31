@@ -45,6 +45,9 @@ class ChatViewModel(
 
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+    
+    private val _streamingResponse = MutableStateFlow("")
+    val streamingResponse: StateFlow<String> = _streamingResponse.asStateFlow()
 
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
@@ -118,27 +121,39 @@ class ChatViewModel(
         if (_currentSessionId.value == null) createNewChat()
     }
 
-    fun sendMessage(content: String, apiKey: String) {
+    fun sendMessage(content: String) {
         val sessionId = _currentSessionId.value ?: return
         viewModelScope.launch {
             _isTyping.value = true
             _suggestions.value = emptyList() // Clear previous suggestions
+            
+            // Prepare Prompt
+            val profile = _userProfile.value
+            val rawPrompt = _currentPersona.value.systemPrompt
+            
+            val currentDateTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy - h:mm a"))
+            val finalPrompt = rawPrompt
+                .replace("%NAME%", profile?.name ?: "User")
+                .replace("%AGE%", profile?.age ?: "Unknown") + 
+                "\n\nSystem Info: The current date and time is $currentDateTime."
+
             try {
-                // Prepare Prompt
-                val profile = _userProfile.value
-                val rawPrompt = _currentPersona.value.systemPrompt
-                
-                val currentDateTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy - h:mm a"))
-                val finalPrompt = rawPrompt
-                    .replace("%NAME%", profile?.name ?: "User")
-                    .replace("%AGE%", profile?.age ?: "Unknown") + 
-                    "\n\nSystem Info: The current date and time is $currentDateTime."
-                
-                val response = repository.sendMessage(sessionId, content, apiKey, profile, finalPrompt)
-                if (!_isMuted.value) {
-                    ttsManager.speak(response)
+                _streamingResponse.value = ""
+                repository.streamMessage(sessionId, content, profile, finalPrompt).collect { token ->
+                    _streamingResponse.value += token
                 }
-                updateSuggestions(response)
+                
+                // Stream finished
+                val finalResponse = _streamingResponse.value
+                if (finalResponse.isNotBlank()) {
+                    // Save to DB
+                    repository.saveBotMessage(sessionId, finalResponse)
+                    if (!_isMuted.value) {
+                        ttsManager.speak(finalResponse)
+                    }
+                    updateSuggestions(finalResponse)
+                }
+                _streamingResponse.value = ""
             } finally {
                 _isTyping.value = false
             }

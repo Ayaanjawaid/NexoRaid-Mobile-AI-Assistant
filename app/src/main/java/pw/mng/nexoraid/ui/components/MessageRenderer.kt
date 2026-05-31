@@ -21,6 +21,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.TextView
+import androidx.core.content.res.ResourcesCompat
+import pw.mng.nexoraid.R
+import io.noties.markwon.Markwon
+import io.noties.markwon.core.CorePlugin
+import android.graphics.Color as AndroidColor
+import androidx.compose.ui.graphics.toArgb
 
 sealed class MessagePart {
     data class Text(val content: String) : MessagePart()
@@ -54,35 +62,90 @@ fun parseMessageContent(content: String): List<MessagePart> {
     return parts
 }
 
+fun highlightSyntax(code: String): AnnotatedString {
+    return buildAnnotatedString {
+        append(code)
+        
+        val keywords = listOf("import", "fun", "class", "val", "var", "if", "else", "for", "while", "return", "private", "public", "suspend", "override", "package", "let", "const")
+        val keywordRegex = Regex("\\b(${keywords.joinToString("|")})\\b")
+        
+        keywordRegex.findAll(code).forEach { match ->
+            addStyle(
+                style = SpanStyle(color = Color(0xFFFF79C6)), // Pink
+                start = match.range.first,
+                end = match.range.last + 1
+            )
+        }
+        
+        val funRegex = Regex("fun\\s+(\\w+)")
+        funRegex.findAll(code).forEach { match ->
+            addStyle(
+                style = SpanStyle(color = Color(0xFF50FA7B)), // Green
+                start = match.groups[1]!!.range.first,
+                end = match.groups[1]!!.range.last + 1
+            )
+        }
+        
+        val funCallRegex = Regex("\\b(\\w+)(?=\\s*\\()")
+        funCallRegex.findAll(code).forEach { match ->
+            if (!keywords.contains(match.value)) {
+                addStyle(
+                    style = SpanStyle(color = Color(0xFF8BE9FD)), // Cyan
+                    start = match.range.first,
+                    end = match.range.last + 1
+                )
+            }
+        }
+
+        val stringRegex = Regex("\"[^\"]*\"")
+        stringRegex.findAll(code).forEach { match ->
+            addStyle(
+                style = SpanStyle(color = Color(0xFFF1FA8C)), // Yellow
+                start = match.range.first,
+                end = match.range.last + 1
+            )
+        }
+        
+        val numberRegex = Regex("\\b\\d+\\b")
+        numberRegex.findAll(code).forEach { match ->
+            addStyle(
+                style = SpanStyle(color = Color(0xFFBD93F9)), // Purple
+                start = match.range.first,
+                end = match.range.last + 1
+            )
+        }
+    }
+}
+
 @Composable
 fun FormattedMessageText(
     text: String,
     textColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val parts = remember(text) { parseMessageContent(text) }
-
-    Column(modifier = modifier) {
-        parts.forEach { part ->
-            when (part) {
-                is MessagePart.Text -> {
-                    if (part.content.isNotEmpty()) {
-                        SelectionContainer {
-                            Text(
-                                text = parseMarkdownStyles(part.content),
-                                color = textColor,
-                                fontSize = 15.sp,
-                                lineHeight = 22.sp
-                            )
-                        }
-                    }
-                }
-                is MessagePart.Code -> {
-                    CodeBlock(language = part.language, code = part.code)
-                }
-            }
-        }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val markwon = remember {
+        Markwon.builder(context)
+            .usePlugin(CorePlugin.create())
+            .build()
     }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            TextView(ctx).apply {
+                setTextColor(textColor.toArgb())
+                textSize = 15f
+                typeface = ResourcesCompat.getFont(ctx, R.font.calibri_regular)
+                setLinkTextColor(AndroidColor.parseColor("#3F83F8"))
+                // ensure links are clickable if needed (markwon LinkifyPlugin etc.)
+            }
+        },
+        update = { textView ->
+            textView.setTextColor(textColor.toArgb())
+            markwon.setMarkdown(textView, text)
+        }
+    )
 }
 
 @Composable
@@ -141,8 +204,7 @@ fun CodeBlock(language: String, code: String) {
             // Code Content
             SelectionContainer {
                 Text(
-                    text = code,
-                    color = Color(0xFFD4D4D4),
+                    text = highlightSyntax(code),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(12.dp),

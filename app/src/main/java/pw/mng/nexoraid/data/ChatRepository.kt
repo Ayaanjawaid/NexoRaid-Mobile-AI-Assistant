@@ -3,11 +3,20 @@ package pw.mng.nexoraid.data
 import kotlinx.coroutines.flow.Flow
 import pw.mng.nexoraid.BuildConfig
 import pw.mng.nexoraid.api.*
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.catch
+
+import pw.mng.nexoraid.provider.ProviderGatewayManager
+import pw.mng.nexoraid.security.SecureStorage
+
+import pw.mng.nexoraid.retrieval.SearchCoordinator
 
 class ChatRepository(
     private val chatDao: ChatDao,
-    private val apiService: OpenRouterService,
-    private val searchService: GoogleSearchService
+    private val providerGatewayManager: ProviderGatewayManager,
+    private val secureStorage: SecureStorage,
+    private val searchCoordinator: SearchCoordinator
 ) {
     val allSessions: Flow<List<ChatSession>> = chatDao.getAllSessions()
 
@@ -22,7 +31,6 @@ class ChatRepository(
     suspend fun sendMessage(
         sessionId: Long,
         content: String,
-        apiKey: String,
         userProfile: UserProfile?,
         systemPrompt: String 
     ): String {
@@ -31,63 +39,55 @@ class ChatRepository(
 
         var enhancedSystemPrompt = systemPrompt
         
-        // Simple heuristic to decide if we need to search
-        val requiresSearch = content.contains("?") || 
-            content.contains(Regex("\\b(who|what|where|when|why|how|current|latest|price|weather|news)\\b", RegexOption.IGNORE_CASE))
-            
-        if (requiresSearch) {
-            val searchContext = performWebSearch(content)
-            if (searchContext.isNotBlank()) {
-                enhancedSystemPrompt += "\n\nCRITICAL CONTEXT FROM LIVE WEB SEARCH:\n$searchContext"
-            }
+        val searchContext = searchCoordinator.buildSearchContext(content)
+        if (searchContext.isNotBlank()) {
+            enhancedSystemPrompt += "\n\nCRITICAL CONTEXT FROM LIVE WEB SEARCH:\n$searchContext"
         }
 
-        val request = ChatRequest(
-            model = "nvidia/nemotron-3-nano-30b-a3b:free",
-            messages = listOf(
-                ChatChoiceMessage(role = "system", content = enhancedSystemPrompt),
-                ChatChoiceMessage(role = "user", content = content)
-            )
-        )
+        val provider = secureStorage.getDefaultProvider()
+        val apiKey = secureStorage.getApiKey(provider) ?: ""
+        val model = secureStorage.getDefaultModel(provider)
 
         try {
-            val response = apiService.getChatCompletion("Bearer $apiKey", request = request)
-            if (response.isSuccessful) {
-                val botContent = response.body()?.choices?.firstOrNull()?.message?.content ?: "No signal."
-                chatDao.insertMessage(Message(sessionId = sessionId, content = botContent, isUser = false))
-                return botContent
-            } else {
-                val errorBody = response.errorBody()?.string() ?: ""
-                val errorMsg = "Error: Protocol failure (${response.code()} ${response.message()}). $errorBody"
-                chatDao.insertMessage(Message(sessionId = sessionId, content = errorMsg, isUser = false))
-                return errorMsg
-            }
+            val adapter = providerGatewayManager.getAdapter(provider)
+            val botContent = adapter.sendMessage(apiKey, model, content, enhancedSystemPrompt)
+            chatDao.insertMessage(Message(sessionId = sessionId, content = botContent, isUser = false))
+            return botContent
         } catch (e: Exception) {
-            val errorMsg = "Error: Connection lost."
+            val errorMsg = "Error: Connection lost. ${e.message}"
             chatDao.insertMessage(Message(sessionId = sessionId, content = errorMsg, isUser = false))
             return errorMsg
         }
     }
 
-    // Retrieval‑augmented generation: fetch search results from Google Custom Search
-    private suspend fun performWebSearch(query: String): String {
-        val searchKey = BuildConfig.SEARCH_API_KEY
-        val cx = BuildConfig.SEARCH_ENGINE_ID
+    fun streamMessage(
+        sessionId: Long,
+        content: String,
+        userProfile: UserProfile?,
+        systemPrompt: String 
+    ): Flow<String> = flow {
+        // Save user message
+        chatDao.insertMessage(Message(sessionId = sessionId, content = content, isUser = true))
+
+        var enhancedSystemPrompt = systemPrompt
         
-        if (searchKey.isBlank() || cx.isBlank()) return ""
-        
-        return try {
-            val response = searchService.search(query, searchKey, cx, 3)
-            val items = response.items
-            
-            if (items.isNullOrEmpty()) return ""
-            
-            items.joinToString("\n") { 
-                "- ${it.title}: ${it.snippet}" 
-            }
-        } catch (e: Exception) {
-            ""
+        val searchContext = searchCoordinator.buildSearchContext(content)
+        if (searchContext.isNotBlank()) {
+            enhancedSystemPrompt += "\n\nCRITICAL CONTEXT FROM LIVE WEB SEARCH:\n$searchContext"
         }
+        
+        val provider = secureStorage.getDefaultProvider()
+        val apiKey = secureStorage.getApiKey(provider) ?: ""
+        val model = secureStorage.getDefaultModel(provider)
+        
+        val adapter = providerGatewayManager.getAdapter(provider)
+        emitAll(adapter.streamMessage(apiKey, model, content, enhancedSystemPrompt).catch { e ->
+            emit("Error: Connection failed or Stream interrupted. ${e.message}")
+        })
+    }
+
+    suspend fun saveBotMessage(sessionId: Long, content: String) {
+        chatDao.insertMessage(Message(sessionId = sessionId, content = content, isUser = false))
     }
 
     suspend fun deleteSession(sessionId: Long) {

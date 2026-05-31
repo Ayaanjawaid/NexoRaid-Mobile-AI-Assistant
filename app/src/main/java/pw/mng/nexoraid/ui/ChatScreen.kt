@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,10 @@ import pw.mng.nexoraid.ui.components.CyberButton
 import pw.mng.nexoraid.ui.components.CyberTextField
 import pw.mng.nexoraid.ui.components.FormattedMessageText
 import pw.mng.nexoraid.ui.components.TypingIndicator
+import pw.mng.nexoraid.ui.components.MessagePart
+import pw.mng.nexoraid.ui.components.parseMessageContent
+import pw.mng.nexoraid.ui.components.CodeBlock
+import androidx.compose.foundation.Image
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -39,108 +44,83 @@ import android.speech.RecognizerIntent
 import android.app.Activity
 import android.widget.Toast
 import pw.mng.nexoraid.ui.theme.*
+import pw.mng.nexoraid.security.SecureStorage
+import pw.mng.nexoraid.ui.components.SettingsDialog
+import pw.mng.nexoraid.ui.components.PrivacyDialog
+import pw.mng.nexoraid.ui.components.CustomToastState
+import pw.mng.nexoraid.ui.components.CustomToastHost
+import pw.mng.nexoraid.ui.components.LocalToastManager
+import pw.mng.nexoraid.ui.components.SavedApisDialog
+import pw.mng.nexoraid.ui.components.AboutDialog
+import pw.mng.nexoraid.ui.components.PrivacyDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainNavigation(viewModel: ChatViewModel, apiKey: String) {
-    var currentScreen by remember { mutableStateOf("splash") }
+fun MainNavigation(viewModel: ChatViewModel, secureStorage: SecureStorage) {
+    var currentScreen by remember { mutableStateOf(if (viewModel.isSetupDone.value) "chat" else "onboarding") }
     val isSetupDone by viewModel.isSetupDone.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val currentPersona by viewModel.currentPersona.collectAsState()
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val toastState = remember { CustomToastState(snackbarHostState) }
+
     NexoRaidTheme(darkTheme = isDarkMode, persona = currentPersona) {
-        when (currentScreen) {
-            "splash" -> SplashScreen {
-                currentScreen = if (isSetupDone) "chat" else "onboarding"
+        CompositionLocalProvider(LocalToastManager provides toastState) {
+            Scaffold(
+                snackbarHost = { CustomToastHost(snackbarHostState) },
+                containerColor = MaterialTheme.colorScheme.background,
+                contentWindowInsets = WindowInsets(0.dp)
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    when (currentScreen) {
+                        "onboarding" -> OnboardingScreen(secureStorage = secureStorage) { name, age, gender ->
+                            viewModel.saveProfile(name, age, gender)
+                            currentScreen = "chat"
+                        }
+                        "chat" -> ChatWithSidebar(viewModel, secureStorage)
+                    }
+                }
             }
-            "onboarding" -> OnboardingScreen { name, age, gender ->
-                viewModel.saveProfile(name, age, gender)
-                currentScreen = "chat"
-            }
-            "chat" -> ChatWithSidebar(viewModel, apiKey)
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatWithSidebar(viewModel: ChatViewModel, apiKey: String) {
+fun ChatWithSidebar(viewModel: ChatViewModel, secureStorage: SecureStorage) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val sessions by viewModel.sessions.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     var showAboutDialog by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
+    var showPrivacyDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(secureStorage.getApiKey(secureStorage.getDefaultProvider()).isNullOrBlank()) }
+    var showSavedApisDialog by remember { mutableStateOf(false) }
+    var showTour by remember { mutableStateOf(!secureStorage.hasSeenTour()) }
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 
     if (showAboutDialog) {
-        AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            title = { Text("About Nexoraid", color = MaterialTheme.colorScheme.primary) },
-            text = {
-                Text(
-                    "Nexoraid is a premium AI companion designed for elite productivity and seamless interaction.\n\n" +
-                    "Built with passion by Ayan Jawaid.",
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) { Text("CLOSE") }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        AboutDialog(onDismiss = { showAboutDialog = false })
     }
 
     if (showSettingsDialog) {
-        AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Settings", color = MaterialTheme.colorScheme.primary) },
-            text = {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Dark Mode", color = MaterialTheme.colorScheme.onSurface)
-                        Switch(
-                            checked = isDarkMode,
-                            onCheckedChange = { viewModel.toggleDarkMode(it) }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    
-                    Text("Persona", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-                    
-                    val currentPersona by viewModel.currentPersona.collectAsState()
-                    val personas = pw.mng.nexoraid.data.Persona.entries
-                    
-                    personas.forEach { persona ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.setPersona(persona) }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = (persona == currentPersona),
-                                onClick = { viewModel.setPersona(persona) }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(persona.displayName, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("DONE") }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
+        SettingsDialog(
+            viewModel = viewModel,
+            secureStorage = secureStorage,
+            onDismiss = { showSettingsDialog = false }
         )
     }
+
+    if (showPrivacyDialog) {
+        PrivacyDialog(onDismiss = { showPrivacyDialog = false })
+    }
+
+    if (showSavedApisDialog) {
+        SavedApisDialog(secureStorage = secureStorage, onDismiss = { showSavedApisDialog = false })
+    }
+
+    var showStorageScreen by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -163,16 +143,37 @@ fun ChatWithSidebar(viewModel: ChatViewModel, apiKey: String) {
                     onDeleteSession = { id -> viewModel.deleteSession(id) },
                     onRenameSession = { id, newName -> viewModel.renameSession(id, newName) },
                     onAboutClick = { showAboutDialog = true },
-                    onSettingsClick = { showSettingsDialog = true }
+                    onPrivacyClick = { showPrivacyDialog = true },
+                    onSettingsClick = { showSettingsDialog = true },
+                    onSavedApisClick = { showSavedApisDialog = true },
+                    onStorageClick = {
+                        showStorageScreen = true
+                        scope.launch { drawerState.close() }
+                    }
                 )
             }
         }
     ) {
-        ChatScreen(
-            viewModel = viewModel,
-            apiKey = apiKey,
-            onMenuClick = { scope.launch { drawerState.open() } }
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (showStorageScreen) {
+                pw.mng.nexoraid.ui.components.StoragePage(
+                    documentManager = pw.mng.nexoraid.data.DocumentManager(androidx.compose.ui.platform.LocalContext.current),
+                    onBack = { showStorageScreen = false }
+                )
+            } else {
+                ChatScreen(
+                    viewModel = viewModel,
+                    onMenuClick = { scope.launch { drawerState.open() } }
+                )
+            }
+            
+            if (showTour) {
+                TourOverlay(onDismiss = { 
+                    secureStorage.setHasSeenTour()
+                    showTour = false 
+                })
+            }
+        }
     }
 }
 
@@ -185,7 +186,10 @@ fun SidebarContent(
     onDeleteSession: (Long) -> Unit,
     onRenameSession: (Long, String) -> Unit,
     onAboutClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onPrivacyClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onSavedApisClick: () -> Unit,
+    onStorageClick: () -> Unit
 ) {
     var sessionToRename by remember { mutableStateOf<ChatSession?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -271,7 +275,7 @@ fun SidebarContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.List, null,
+                        Icons.AutoMirrored.Filled.List, null,
                         tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Spacer(Modifier.width(12.dp))
@@ -287,10 +291,10 @@ fun SidebarContent(
                             renameText = session.title
                             sessionToRename = session
                         }) {
-                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
                         }
                         IconButton(onClick = { onDeleteSession(session.id) }) {
-                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -300,10 +304,24 @@ fun SidebarContent(
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
         NavigationDrawerItem(
+            label = { Text("Storage") },
+            selected = false,
+            onClick = onStorageClick,
+            icon = { Icon(Icons.Default.Storage, null) },
+            colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+        )
+        NavigationDrawerItem(
             label = { Text("Settings") },
             selected = false,
             onClick = onSettingsClick,
             icon = { Icon(Icons.Default.Settings, null) },
+            colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+        )
+        NavigationDrawerItem(
+            label = { Text("Saved APIs") },
+            selected = false,
+            onClick = onSavedApisClick,
+            icon = { Icon(Icons.Default.Bookmarks, null) },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
         )
         NavigationDrawerItem(
@@ -313,97 +331,161 @@ fun SidebarContent(
             icon = { Icon(Icons.Default.Info, null) },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
         )
+        NavigationDrawerItem(
+            label = { Text("Privacy & Security") },
+            selected = false,
+            onClick = onPrivacyClick,
+            icon = { Icon(Icons.Default.Security, null) },
+            colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+        )
     }
 }
 
-@Composable
-fun SplashScreen(onFinish: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-        var visible by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            visible = true
-            delay(1500)
-            onFinish()
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                painter = androidx.compose.ui.res.painterResource(id = pw.mng.nexoraid.R.drawable.ic_nexoraid_vector),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.size(120.dp)
-            )
-            Spacer(Modifier.height(24.dp))
-            AnimatedVisibility(visible = visible, enter = fadeIn() + expandVertically()) {
-                Text(
-                    "NEXORAID",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 8.sp
-                )
-            }
-        }
-    }
-}
+
 
 @Composable
-fun OnboardingScreen(onComplete: (String, String, String) -> Unit) {
+fun OnboardingScreen(secureStorage: SecureStorage, onComplete: (String, String, String) -> Unit) {
+    var step by remember { mutableStateOf(1) }
+    
     var name by remember { mutableStateOf("") }
     var age by remember { mutableStateOf("") }
     var gender by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("WELCOME TO NEXORAID", color = MaterialTheme.colorScheme.primary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text("Define your profile for optimal interface sync", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp)
-        
-        Spacer(Modifier.height(48.dp))
-        
-        OutlinedTextField(
-            value = name, onValueChange = { name = it },
-            label = { Text("Agent Name") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        )
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(
-            value = age, onValueChange = { age = it },
-            label = { Text("Age") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        )
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(
-            value = gender, onValueChange = { gender = it },
-            label = { Text("Gender") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        )
-        
-        Spacer(Modifier.height(48.dp))
-        
-        Button(
-            onClick = { onComplete(name, age, gender) },
-            enabled = name.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Text("BOOT SEQUENCE START", fontWeight = FontWeight.Bold)
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+        AnimatedContent(targetState = step, label = "onboarding") { targetStep ->
+            when (targetStep) {
+                1 -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = pw.mng.nexoraid.R.drawable.ic_nexoraid_vector),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(100.dp)
+                        )
+                        Spacer(Modifier.height(32.dp))
+                        Text("WELCOME TO NEXORAID", color = MaterialTheme.colorScheme.primary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Your premium, privacy-first AI workspace. All data stays strictly on your device. Let's set up your profile.",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            fontSize = 16.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(Modifier.height(48.dp))
+                        Button(
+                            onClick = { step = 2 },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("NEXT", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                2 -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("PROFILE & ACCESS", color = MaterialTheme.colorScheme.primary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Define your profile for optimal interface sync", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp)
+                        
+                        Spacer(Modifier.height(32.dp))
+                        
+                        OutlinedTextField(
+                            value = name, onValueChange = { name = it },
+                            label = { Text("Agent Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = age, onValueChange = { age = it },
+                                label = { Text("Age") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            OutlinedTextField(
+                                value = gender, onValueChange = { gender = it },
+                                label = { Text("Gender") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                        
+                        Spacer(Modifier.height(24.dp))
+                        
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    "⚠️ IMPORTANT: An API Key is required to use this app.",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = apiKey, onValueChange = { apiKey = it },
+                                    label = { Text("API Key (Optional right now)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(32.dp))
+                        
+                        Button(
+                            onClick = { 
+                                if (apiKey.isNotBlank()) {
+                                    val defaultProvider = secureStorage.getDefaultProvider()
+                                    secureStorage.saveApiKey(defaultProvider, apiKey)
+                                }
+                                onComplete(name, age, gender) 
+                            },
+                            enabled = name.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("BOOT SEQUENCE START", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel, apiKey: String, onMenuClick: () -> Unit) {
+fun ChatScreen(viewModel: ChatViewModel, onMenuClick: () -> Unit) {
     var textState by remember { mutableStateOf("") }
     val messages by viewModel.messages.collectAsState()
     val isTyping by viewModel.isTyping.collectAsState()
     val listState = rememberLazyListState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val documentManager = remember { pw.mng.nexoraid.data.DocumentManager(context) }
+    
+    val documentLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val file = documentManager.saveDocumentFromUri(it)
+            if (file != null) {
+                val text = pw.mng.nexoraid.utils.DocumentParser.extractText(file)
+                textState += "\n[Attached Document: ${file.name}]\n$text\n"
+            }
+        }
+    }
 
     LaunchedEffect(messages.size, isTyping) {
         val totalItems = messages.size + if (isTyping) 1 else 0
@@ -425,7 +507,7 @@ fun ChatScreen(viewModel: ChatViewModel, apiKey: String, onMenuClick: () -> Unit
                     val isMuted by viewModel.isMuted.collectAsState()
                     IconButton(onClick = { viewModel.toggleMute() }) {
                         Icon(
-                            imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = if (isMuted) "Unmute" else "Mute",
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -440,13 +522,16 @@ fun ChatScreen(viewModel: ChatViewModel, apiKey: String, onMenuClick: () -> Unit
                 onTextChange = { textState = it },
                 onSend = {
                     if (textState.isNotBlank()) {
-                        viewModel.sendMessage(textState, apiKey)
+                        viewModel.sendMessage(textState)
                         textState = ""
                     }
                 },
+                onAttach = {
+                    documentLauncher.launch("*/*")
+                },
                 suggestions = viewModel.suggestions.collectAsState().value,
                 onSuggestionClick = { suggestion ->
-                    viewModel.sendMessage(suggestion, apiKey)
+                    viewModel.sendMessage(suggestion)
                 }
             )
         },
@@ -461,16 +546,37 @@ fun ChatScreen(viewModel: ChatViewModel, apiKey: String, onMenuClick: () -> Unit
             items(messages) { message -> MessageItem(message) }
             if (isTyping) {
                 item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    val streamingResponse by viewModel.streamingResponse.collectAsState()
+                    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
                         Surface(
+                            modifier = Modifier.widthIn(max = 340.dp).padding(horizontal = 4.dp),
                             shape = RoundedCornerShape(
-                                topStart = 16.dp, topEnd = 16.dp,
-                                bottomEnd = 16.dp, bottomStart = 4.dp
+                                topStart = 20.dp, topEnd = 20.dp,
+                                bottomEnd = 20.dp, bottomStart = 4.dp
                             ),
                             color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
                             tonalElevation = 2.dp
                         ) {
-                           TypingIndicator()
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                if (streamingResponse.isNotBlank()) {
+                                    val parts = parseMessageContent(streamingResponse)
+                                    parts.forEach { part ->
+                                        when (part) {
+                                            is MessagePart.Text -> FormattedMessageText(
+                                                text = part.content,
+                                                textColor = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            is MessagePart.Code -> CodeBlock(
+                                                language = part.language,
+                                                code = part.code
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    TypingIndicator()
+                                }
+                            }
                         }
                     }
                 }
@@ -484,6 +590,7 @@ fun ChatInputArea(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAttach: () -> Unit,
     suggestions: List<String>,
     onSuggestionClick: (String) -> Unit
 ) {
@@ -518,22 +625,29 @@ fun ChatInputArea(
                             onClick = { onSuggestionClick(suggestion) },
                             label = { Text(suggestion) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                containerColor = Color.Transparent,
+                                labelColor = MaterialTheme.colorScheme.primary
                             ),
-                            border = null
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            ),
+                            shape = CircleShape
                         )
                     }
                 }
             }
+            val combinedInsets = WindowInsets.ime.union(WindowInsets.navigationBars)
             Row(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 16.dp, top = 8.dp)
-                    .navigationBarsPadding()
-                    .imePadding(),
+                    .windowInsetsPadding(combinedInsets),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+            IconButton(onClick = onAttach) {
+                Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary)
+            }
             TextField(
                 value = text, onValueChange = onTextChange,
                 modifier = Modifier.weight(1f),
@@ -570,11 +684,11 @@ fun ChatInputArea(
                     onSend()
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.background,
-                shape = CircleShape,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.size(48.dp)
             ) {
-                Icon(Icons.Default.Send, null)
+                Icon(Icons.AutoMirrored.Filled.Send, null)
             }
             }
         }
@@ -590,6 +704,13 @@ fun MessageItem(message: Message) {
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { isVisible = true }
 
+    val bubbleShape = RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (isBot) 4.dp else 20.dp,
+        bottomEnd = if (isBot) 20.dp else 4.dp
+    )
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInVertically(initialOffsetY = { 50 }) + fadeIn()
@@ -598,44 +719,85 @@ fun MessageItem(message: Message) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             horizontalAlignment = alignment
         ) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 340.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 20.dp,
-                            topEnd = 20.dp,
-                            bottomStart = if (isBot) 4.dp else 20.dp,
-                            bottomEnd = if (isBot) 20.dp else 4.dp
-                        )
-                    )
-                    .background(
-                        brush = if (isBot) {
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.colorScheme.surface
-                                )
+            Surface(
+                modifier = Modifier.widthIn(max = 340.dp),
+                shape = bubbleShape,
+                color = if (isBot) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, 
+                    if (isBot) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                ),
+                tonalElevation = if (isBot) 2.dp else 0.dp
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    val parts = parseMessageContent(message.content)
+                    parts.forEach { part ->
+                        when (part) {
+                            is MessagePart.Text -> FormattedMessageText(
+                                text = part.content,
+                                textColor = MaterialTheme.colorScheme.onSurface
                             )
-                        } else {
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.tertiary
-                                )
+                            is MessagePart.Code -> CodeBlock(
+                                language = part.language,
+                                code = part.code
                             )
                         }
-                    )
-            ) {
-                FormattedMessageText(
-                    text = message.content,
-                    textColor = if (isBot) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(14.dp)
-                )
+                    }
+                }
             }
             
             // Optional: Timestamp or Status could go here
             Spacer(modifier = Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
+fun TourOverlay(onDismiss: () -> Unit) {
+    var currentStep by remember { mutableStateOf(1) }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f))
+            .clickable { 
+                if (currentStep < 2) currentStep++ else onDismiss()
+            }
+    ) {
+        if (currentStep == 1) {
+            Column(
+                modifier = Modifier.padding(top = 90.dp, start = 32.dp)
+            ) {
+                Icon(Icons.Default.ArrowUpward, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Welcome! Tap the menu icon\nto access Settings & Saved APIs.",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("Tap anywhere to continue", color = Color.Gray, fontSize = 14.sp)
+            }
+        } else if (currentStep == 2) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 140.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Tap anywhere to finish", color = Color.Gray, fontSize = 14.sp)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Type your message here\nand hit Send to start chatting!",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(Modifier.height(16.dp))
+                Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+            }
         }
     }
 }

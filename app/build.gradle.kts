@@ -15,7 +15,7 @@ if (localPropertiesFile.exists()) {
 }
 val openRouterApiKey = localProperties.getProperty("OPENROUTER_API_KEY") ?: "YOUR_API_KEY_HERE"
 val searchApiKey = localProperties.getProperty("SEARCH_API_KEY") ?: ""
-val searchEngineId = localProperties.getProperty("SEARCH_ENGINE_ID") ?: ""
+    val searchEngineId = localProperties.getProperty("SEARCH_ENGINE_ID") ?: ""
 
 android {
     namespace = "pw.mng.nexoraid"
@@ -37,7 +37,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -58,6 +58,8 @@ android {
 }
 
 dependencies {
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
@@ -77,11 +79,18 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // Retrofit
+    // Retrofit & OkHttp
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+    implementation(libs.okhttp.sse)
+
+    // Security
+    implementation(libs.androidx.security.crypto)
+
+    // Markdown
+    implementation(libs.markwon.core)
 
     // Room
     implementation(libs.room.runtime)
